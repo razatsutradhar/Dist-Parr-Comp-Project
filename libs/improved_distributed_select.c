@@ -1,7 +1,10 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
+#define MAX_LINE_LENGTH 1000
+#define VALUES_PER_LINE 100
 typedef struct request {
   int type;
   int UB;
@@ -9,6 +12,7 @@ typedef struct request {
   int NUM;
 } request;
 
+/*
 void get_data(char *data_path, int world_rank, int *data) {
   FILE *data_file;
   sprintf(data_path, "%s/%d", data_path, world_rank);
@@ -20,6 +24,33 @@ void get_data(char *data_path, int world_rank, int *data) {
   }
   fclose(data_file);
 }
+*/
+
+void get_data(const char *file_path, int line_number, int *values) {
+    FILE *file = fopen(file_path, "r");
+    if (file == NULL) {
+        perror("Error opening file");
+        return;
+    }
+
+    char line[MAX_LINE_LENGTH];
+    int current_line = 0;
+
+    while (fgets(line, sizeof(line), file) != NULL) {
+        if (current_line == line_number - 1) {
+            char *token = strtok(line, ",");
+            int i = 0;
+            while (token != NULL && i < VALUES_PER_LINE) {
+                values[i++] = atoi(token);
+                token = strtok(NULL, ",");
+            }
+            break;
+        }
+        current_line++;
+    }
+
+    fclose(file);
+}
 
 // send range
 // on request send a random in range number
@@ -27,8 +58,12 @@ void get_data(char *data_path, int world_rank, int *data) {
 void worker(char *data_path) {
   int i, N, choice, response, size;
   int *data;
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  
+  // get_data(&N, data, data_path, world_rank);
+  get_data(data_path, world_rank, data);
 
-  get_data(&N, data, data_path, world_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   struct request req;
   while (1) {
