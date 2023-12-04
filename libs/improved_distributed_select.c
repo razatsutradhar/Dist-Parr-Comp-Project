@@ -80,7 +80,7 @@ void central() {
       if (world_rank == 0) {
     data_stats = calloc(size - 1, sizeof(data_stats_t));
   }
-  MPI_Gatherv(&this_data_stats, 1, data_stats_mpi_t, data_stats, world_size, ;
+  MPI_Gatherv(&this_data_stats, 1, data_stats_mpi_t, data_stats, world_size, );
 }
 
 void improved_distributed_select(char *data_path) {
