@@ -39,7 +39,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
   // ub_rank is the rank of the upper bound
   // proposed is the proposed rank
 
-  asprintf(&full_path, "%s/%d", data_path, world_rank);
+  asprintf(&full_path, "%s/%d.txt", data_path, world_rank);
   data_file = fopen(full_path, "r");
   free(full_path);
   fscanf(data_file, "%d\n", &this_count);
