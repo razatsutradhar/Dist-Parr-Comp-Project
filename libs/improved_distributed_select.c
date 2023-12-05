@@ -1,131 +1,171 @@
+#include <limits.h>
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-
-#define MAX_LINE_LENGTH 1000
-#define VALUES_PER_LINE 100
-typedef struct request {
-  int type;
-  int UB;
-  int LB;
-  int NUM;
-} request;
-
-/*
-void get_data(char *data_path, int world_rank, int *data) {
-  FILE *data_file;
-  sprintf(data_path, "%s/%d", data_path, world_rank);
-  data_file = fopen(data_path, "r");
-  int N = getw(data_file);
-  data = calloc(N, sizeof(int));
-  for (int i = 0; i < N; i++) {
-    data[i] = getw(data_file);
-  }
-  fclose(data_file);
-}
-*/
-
-void get_data(const char *file_path, int line_number, int *values) {
-    FILE *file = fopen(file_path, "r");
-    if (file == NULL) {
-        perror("Error opening file");
-        return;
-    }
-
-    char line[MAX_LINE_LENGTH];
-    int current_line = 0;
-
-    while (fgets(line, sizeof(line), file) != NULL) {
-        if (current_line == line_number - 1) {
-            char *token = strtok(line, ",");
-            int i = 0;
-            while (token != NULL && i < VALUES_PER_LINE) {
-                values[i++] = atoi(token);
-                token = strtok(NULL, ",");
-            }
-            break;
-        }
-        current_line++;
-    }
-
-    fclose(file);
-}
-
-// send range
-// on request send a random in range number
-// on request send the count lt and gt
-void worker(char *data_path) {
-  int i, N, choice, response, size;
-  int *data;
-  int world_rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-  
-  // get_data(&N, data, data_path, world_rank);
-  get_data(data_path, world_rank, data);
-
-  MPI_Comm_size(MPI_COMM_WORLD, &size);
-  struct request req;
-  while (1) {
-    MPI_Recv(&req, 4, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    if (req.type == 0)
-      break;
-    if (req.type == 1) {
-      response = req.LB + rand() % (req.UB - req.LB);
-      MPI_Bcast(&response, 1, MPI_INT, world_rank, MPI_COMM_WORLD);
-    }
-    if (req.type == 2) {
-      int rank = N / 2;
-      int step = N / 4;
-      while (step) {
-        if (data[rank] == req.NUM)
-          break;
-        else if (data[rank] < req.NUM)
-          rank += step;
-        else
-          rank -= step;
-        step /= 2;
-      }
-      MPI_Gather(&rank, size - 1, MPI_INT, NULL, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    }
-  }
-  free(data);
-}
-
-typedef struct {
-  int max;
-  int min;
-  int count;
-} data_stats_t;
 
 // recieve ranges and create a list
 // while true
 // select in range request in range
 // request all possible lt and gt filling in known based of range list
-void central() {
-  int UB, LB, world_size, world_rank;
-  data_stats_t this_data_stats;
-  data_stats_t *data_stats;
-  MPI_Datatype *data_stats_mpi_t;
-  MPI_Type_contiguous(world_size, MPI_INT, data_stats_mpi_t);
+int improved_distributed_select(char *data_path, int rank, int *argc,
+                                char ***argv) {
+  setbuf(stdout, NULL);
+  MPI_Init(argc, argv);
+  int i;
+
+  int this_min, this_max, this_count;
+  int *data;
+
+  int world_size, world_rank;
   MPI_Comm_size(MPI_COMM_WORLD, &world_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-  recieve s
-      // request all min and max
-      if (world_rank == 0) {
-    data_stats = calloc(size - 1, sizeof(data_stats_t));
-  }
-  MPI_Gatherv(&this_data_stats, 1, data_stats_mpi_t, data_stats, world_size, );
-}
 
-void improved_distributed_select(char *data_path) {
-  MPI_Init(NULL, NULL);
-  int rank, selected;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  sprintf(data_path, "%s/%d", data_path, rank);
-  if (rank == 0) {
-    central();
-  } else {
-    worker(data_path);
+  int *all_min;
+  int *all_max;
+  int *all_lt_count;
+
+  FILE *data_file;
+  char *full_path;
+
+  int ub = INT_MAX, lb = 0, possible, worker_select;
+
+  int step, lb_rank, ub_rank, proposed = 0;
+
+  asprintf(&full_path, "%s/%d", data_path, world_rank);
+  data_file = fopen(full_path, "r");
+  free(full_path);
+  fscanf(data_file, "%d\n", &this_count);
+  data = calloc(this_count, sizeof(int));
+  printf("pid: %d length: %d\n\r", world_rank, this_count);
+  for (i = 0; i < this_count; i++) {
+    fscanf(data_file, "%d", &this_count);
   }
+  fclose(data_file);
+
+  this_min = data[0];
+  this_max = data[0];
+  for (i = 1; i < this_count; i++) {
+    if (data[i] < this_min)
+      this_min = data[i];
+    if (data[i] > this_max)
+      this_max = data[i];
+  }
+
+  // request all min and max
+  if (world_rank == 0) {
+    all_min = calloc(world_size, sizeof(int));
+    all_max = calloc(world_size, sizeof(int));
+    all_lt_count = calloc(world_size, sizeof(int));
+  }
+
+  MPI_Gather(&this_min, 1, MPI_INT, all_min, world_size, MPI_INT, 0,
+             MPI_COMM_WORLD);
+  MPI_Gather(&this_max, 1, MPI_INT, all_max, world_size, MPI_INT, 0,
+             MPI_COMM_WORLD);
+
+  // while (cont) {
+  if (world_rank == 0) {
+    // count possible
+    possible = 0;
+    for (i = 0; i < world_size; i++) {
+      if (all_min[i] < ub || all_max[i] > lb)
+        possible++;
+    }
+    i = rand() % possible;
+    worker_select = 0;
+
+    while (i) {
+      worker_select++;
+      if (all_min[i] < ub || all_max[i] > lb) {
+        i--;
+      }
+    }
+  }
+
+  MPI_Bcast(&worker_select, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&lb, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&ub, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+  if (world_rank == worker_select) {
+    // find LB rank
+    lb_rank = this_count / 2;
+    step = this_count / 4;
+    while (step) {
+      printf("%d %d\n", lb_rank, step);
+      if (data[lb_rank] == lb)
+        break;
+      else if (data[lb_rank] > lb) {
+        lb_rank -= step;
+      } else {
+        lb_rank += step;
+      }
+      step /= 2;
+    }
+
+    // find UB rank
+    ub_rank = this_count / 2;
+    step = this_count / 4;
+    while (step) {
+      if (data[ub_rank] == ub)
+        break;
+      else if (data[ub_rank] < ub) {
+        ub_rank += step;
+      } else {
+        ub_rank -= step;
+      }
+      step /= 2;
+    }
+    // rand between
+    proposed = lb_rank + (rand() % (ub_rank - lb_rank));
+  }
+  // Bcast selected
+  // MPI_Bcast(&proposed, 1, MPI_INT, worker_select, MPI_COMM_WORLD);
+
+  /*
+   proposed_rank = this_data_stats.count / 2;
+   step = this_data_stats.count / 4;
+   while (step) {
+     if (data[proposed_rank] == proposed) {
+       break;
+     } else if (data[proposed_rank] < proposed) {
+       proposed_rank += step;
+     } else {
+       proposed_rank -= step;
+     }
+     step /= 2;
+   }
+   MPI_Gather(&proposed_rank, 1, MPI_INT, proposed_ranks, world_size, MPI_INT,
+ 0, MPI_COMM_WORLD);
+
+   if (world_rank == 0) {
+     proposed_rank = 0;
+     for (i = 0; i < world_size; i++) {
+       proposed_rank += proposed_ranks[i];
+     }
+     if (proposed_rank == rank) {
+       cont = 0;
+     } else if (proposed_rank > rank) {
+       UB = proposed;
+     } else {
+       LB = proposed;
+     }
+   }
+   MPI_Bcast(&cont, 1, MPI_INT, 0, MPI_COMM_WORLD);
+ }
+ */
+
+  free(data);
+
+  if (world_rank == 0) {
+    free(all_min);
+    free(all_max);
+    free(all_lt_count);
+  }
+
+  if (world_rank == 0) {
+    printf("rank: %d value: %d\n\r", world_rank, rank);
+  }
+  MPI_Barrier(MPI_COMM_WORLD);
+  MPI_Finalize();
+  return rank;
 }
