@@ -20,6 +20,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
       world_rank; // size is number of processes, rank is rank of each process
   MPI_Comm_size(MPI_COMM_WORLD, &world_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  srand(12);
 
   int *all_min;      // gathers of all mins and maxes, dynamic array
   int *all_max;      // gathers of all mins and maxes, dynamic array
@@ -33,7 +34,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
   // possible is the number of possible workers fit the criteria
   // worker_select broadcasts the selected worker
 
-  int step, lb_rank, ub_rank, proposed = 0, proposed_rank;
+  int hi, low, lb_rank, ub_rank, proposed = 0, proposed_rank;
   // step is the step size for the binary search
   // lb_rank is the rank of the lower bound
   // ub_rank is the rank of the upper bound
@@ -65,16 +66,13 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
     all_max = calloc(world_size, sizeof(int));
     all_lt_count = calloc(world_size, sizeof(int));
   }
-
   // gather all min and max
-  MPI_Gather(&this_min, 1, MPI_INT, all_min, world_size, MPI_INT, 0,
-             MPI_COMM_WORLD);
-  MPI_Gather(&this_max, 1, MPI_INT, all_max, world_size, MPI_INT, 0,
-             MPI_COMM_WORLD);
+  MPI_Gather(&this_min, 1, MPI_INT, all_min, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Gather(&this_max, 1, MPI_INT, all_max, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
   // print all min and max
-  if (world_rank == 0) {
-    for (i = 0; i < world_size; i++) {
+  for (i = 0; i < world_size; i++) {
+    if (world_rank == 0) {
       printf("min: %d max: %d\n\r", all_min[i], all_max[i]);
     }
   }
@@ -83,21 +81,23 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
 
     // select a random possible worker based on ub and lb criteria
     if (world_rank == 0) {
+      printf("\nub: %d lb: %d\n", ub, lb);
       // count possible
       possible = 0;
       for (i = 0; i < world_size; i++) {
-        if (all_min[i] < ub || all_max[i] > lb)
+        if (all_min[i] < ub && all_max[i] > lb)
           possible++;
       }
       i = rand() % possible;
       worker_select = 0;
-
+      printf("possible: %d", possible);
       while (i) {
         worker_select++;
-        if (all_min[i] < ub || all_max[i] > lb) {
+        if (all_min[i] < ub && all_max[i] > lb) {
           i--;
         }
       }
+      printf("worker selected: %d\n", worker_select);
     }
 
     // Bcast worker_select so every process knows who the primary worker is
@@ -111,57 +111,62 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
     if (world_rank == worker_select) {
 
       // find LB rank
-      lb_rank = this_count / 2;
-      step = this_count / 4;
-      while (step) {
-        printf("%d %d\n", lb_rank, step);
+      hi = this_count - 1;
+      low = 0;
+      while (hi >= low) {
+        lb_rank = low + (hi - low) / 2;
+        printf("lb low: %d mid: %d high: %d\n", low, lb_rank, hi);
         if (data[lb_rank] == lb)
           break;
         else if (data[lb_rank] > lb) {
-          lb_rank -= step;
+          hi = lb_rank - 1;
         } else {
-          lb_rank += step;
+          low = lb_rank + 1;
         }
-        step /= 2;
       }
 
       // find UB rank
-      ub_rank = this_count / 2;
-      step = this_count / 4;
-      while (step) {
+      hi = this_count - 1;
+      low = 0;
+      while (hi >= low) {
+        ub_rank = low + (hi - low) / 2;
+        printf("ub low: %d mid: %d high: %d\n", low, ub_rank, hi);
         if (data[ub_rank] == ub)
           break;
-        else if (data[ub_rank] < ub) {
-          ub_rank += step;
+        else if (data[ub_rank] > ub) {
+          hi = ub_rank - 1;
         } else {
-          ub_rank -= step;
+          low = ub_rank + 1;
         }
-        step /= 2;
       }
       // get random number in the range
       proposed = data[lb_rank + (rand() % (ub_rank - lb_rank))];
+      printf("proposed: %d\n", proposed);
     }
     // Bcast selected
     MPI_Bcast(&proposed, 1, MPI_INT, worker_select, MPI_COMM_WORLD);
 
-    proposed_rank = this_count / 2;
-    step = this_count / 4;
-    while (step) {
+    hi = this_count - 1;
+    low = 0;
+    while (hi >= low) {
+      proposed_rank = low + (hi - low) / 2;
+      printf("rank low: %d mid: %d high: %d\n", low, proposed_rank, hi);
       if (data[proposed_rank] == proposed) {
         break;
       } else if (data[proposed_rank] < proposed) {
-        proposed_rank += step;
+        low = proposed_rank + 1;
       } else {
-        proposed_rank -= step;
+        hi = proposed_rank - 1;
       }
-      step /= 2;
     }
-    MPI_Gather(&proposed_rank, 1, MPI_INT, all_lt_count, world_size, MPI_INT, 0,
+    printf("pid: %d proposed_rank: %d", world_rank, proposed_rank);
+    MPI_Gather(&proposed_rank, 1, MPI_INT, all_lt_count, 1, MPI_INT, 0,
                MPI_COMM_WORLD);
 
     if (world_rank == 0) {
       proposed_rank = 0;
       for (i = 0; i < world_size; i++) {
+        printf("lt at %d is %d\n", i, all_lt_count[i]);
         proposed_rank += all_lt_count[i];
       }
       if (proposed_rank == rank) {
