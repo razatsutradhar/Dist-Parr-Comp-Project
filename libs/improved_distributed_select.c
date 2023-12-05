@@ -11,7 +11,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
                                 char ***argv) {
   setbuf(stdout, NULL);
   MPI_Init(argc, argv);
-  int i; // loop itterator
+  int i, cont = 1; // loop itterator
 
   int this_min, this_max, this_count; // min max of every local device
   int *data;                          // local data
@@ -33,7 +33,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
   // possible is the number of possible workers fit the criteria
   // worker_select broadcasts the selected worker
 
-  int step, lb_rank, ub_rank, proposed = 0;
+  int step, lb_rank, ub_rank, proposed = 0, proposed_rank;
   // step is the step size for the binary search
   // lb_rank is the rank of the lower bound
   // ub_rank is the rank of the upper bound
@@ -79,103 +79,101 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
     }
   }
 
-  // while (cont) {
+  while (cont) {
 
-  // select a random possible worker based on ub and lb criteria
-  if (world_rank == 0) {
-    // count possible
-    possible = 0;
-    for (i = 0; i < world_size; i++) {
-      if (all_min[i] < ub || all_max[i] > lb)
-        possible++;
-    }
-    i = rand() % possible;
-    worker_select = 0;
+    // select a random possible worker based on ub and lb criteria
+    if (world_rank == 0) {
+      // count possible
+      possible = 0;
+      for (i = 0; i < world_size; i++) {
+        if (all_min[i] < ub || all_max[i] > lb)
+          possible++;
+      }
+      i = rand() % possible;
+      worker_select = 0;
 
-    while (i) {
-      worker_select++;
-      if (all_min[i] < ub || all_max[i] > lb) {
-        i--;
+      while (i) {
+        worker_select++;
+        if (all_min[i] < ub || all_max[i] > lb) {
+          i--;
+        }
       }
     }
-  }
 
-  // Bcast worker_select so every process knows who the primary worker is
-  MPI_Bcast(&worker_select, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    // Bcast worker_select so every process knows who the primary worker is
+    MPI_Bcast(&worker_select, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-  // Bcast lb and ub so every process knows the range
-  MPI_Bcast(&lb, 1, MPI_INT, 0, MPI_COMM_WORLD);
-  MPI_Bcast(&ub, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    // Bcast lb and ub so every process knows the range
+    MPI_Bcast(&lb, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&ub, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-  // only worker select proposes the possible median
-  if (world_rank == worker_select) {
+    // only worker select proposes the possible median
+    if (world_rank == worker_select) {
 
-    // find LB rank
-    lb_rank = this_count / 2;
+      // find LB rank
+      lb_rank = this_count / 2;
+      step = this_count / 4;
+      while (step) {
+        printf("%d %d\n", lb_rank, step);
+        if (data[lb_rank] == lb)
+          break;
+        else if (data[lb_rank] > lb) {
+          lb_rank -= step;
+        } else {
+          lb_rank += step;
+        }
+        step /= 2;
+      }
+
+      // find UB rank
+      ub_rank = this_count / 2;
+      step = this_count / 4;
+      while (step) {
+        if (data[ub_rank] == ub)
+          break;
+        else if (data[ub_rank] < ub) {
+          ub_rank += step;
+        } else {
+          ub_rank -= step;
+        }
+        step /= 2;
+      }
+      // get random number in the range
+      proposed = data[lb_rank + (rand() % (ub_rank - lb_rank))];
+    }
+    // Bcast selected
+    MPI_Bcast(&proposed, 1, MPI_INT, worker_select, MPI_COMM_WORLD);
+
+    proposed_rank = this_count / 2;
     step = this_count / 4;
     while (step) {
-      printf("%d %d\n", lb_rank, step);
-      if (data[lb_rank] == lb)
+      if (data[proposed_rank] == proposed) {
         break;
-      else if (data[lb_rank] > lb) {
-        lb_rank -= step;
+      } else if (data[proposed_rank] < proposed) {
+        proposed_rank += step;
       } else {
-        lb_rank += step;
+        proposed_rank -= step;
       }
       step /= 2;
     }
+    MPI_Gather(&proposed_rank, 1, MPI_INT, all_lt_count, world_size, MPI_INT, 0,
+               MPI_COMM_WORLD);
 
-    // find UB rank
-    ub_rank = this_count / 2;
-    step = this_count / 4;
-    while (step) {
-      if (data[ub_rank] == ub)
-        break;
-      else if (data[ub_rank] < ub) {
-        ub_rank += step;
-      } else {
-        ub_rank -= step;
+    if (world_rank == 0) {
+      proposed_rank = 0;
+      for (i = 0; i < world_size; i++) {
+        proposed_rank += all_lt_count[i];
       }
-      step /= 2;
+      if (proposed_rank == rank) {
+        cont = 0;
+      } else if (proposed_rank > rank) {
+        ub = proposed;
+      } else {
+        lb = proposed;
+      }
     }
-    // get random number in the range
-    proposed = data[lb_rank + (rand() % (ub_rank - lb_rank))];
+    MPI_Bcast(&cont, 1, MPI_INT, 0, MPI_COMM_WORLD);
   }
-  // Bcast selected
-  // MPI_Bcast(&proposed, 1, MPI_INT, worker_select, MPI_COMM_WORLD);
-
-  /*
-   proposed_rank = this_data_stats.count / 2;
-   step = this_data_stats.count / 4;
-   while (step) {
-     if (data[proposed_rank] == proposed) {
-       break;
-     } else if (data[proposed_rank] < proposed) {
-       proposed_rank += step;
-     } else {
-       proposed_rank -= step;
-     }
-     step /= 2;
-   }
-   MPI_Gather(&proposed_rank, 1, MPI_INT, proposed_ranks, world_size, MPI_INT,
- 0, MPI_COMM_WORLD);
-
-   if (world_rank == 0) {
-     proposed_rank = 0;
-     for (i = 0; i < world_size; i++) {
-       proposed_rank += proposed_ranks[i];
-     }
-     if (proposed_rank == rank) {
-       cont = 0;
-     } else if (proposed_rank > rank) {
-       UB = proposed;
-     } else {
-       LB = proposed;
-     }
-   }
-   MPI_Bcast(&cont, 1, MPI_INT, 0, MPI_COMM_WORLD);
- }
- */
 
   free(data);
 
