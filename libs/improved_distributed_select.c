@@ -66,12 +66,22 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
     all_lt_count = calloc(world_size, sizeof(int));
   }
 
+  // gather all min and max
   MPI_Gather(&this_min, 1, MPI_INT, all_min, world_size, MPI_INT, 0,
              MPI_COMM_WORLD);
   MPI_Gather(&this_max, 1, MPI_INT, all_max, world_size, MPI_INT, 0,
              MPI_COMM_WORLD);
 
+  // print all min and max
+  if (world_rank == 0) {
+    for (i = 0; i < world_size; i++) {
+      printf("min: %d max: %d\n\r", all_min[i], all_max[i]);
+    }
+  }
+
   // while (cont) {
+
+  // select a random possible worker based on ub and lb criteria
   if (world_rank == 0) {
     // count possible
     possible = 0;
@@ -90,11 +100,16 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
     }
   }
 
+  // Bcast worker_select so every process knows who the primary worker is
   MPI_Bcast(&worker_select, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+  // Bcast lb and ub so every process knows the range
   MPI_Bcast(&lb, 1, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Bcast(&ub, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
+  // only worker select proposes the possible median
   if (world_rank == worker_select) {
+
     // find LB rank
     lb_rank = this_count / 2;
     step = this_count / 4;
@@ -123,8 +138,8 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
       }
       step /= 2;
     }
-    // rand between
-    proposed = lb_rank + (rand() % (ub_rank - lb_rank));
+    // get random number in the range
+    proposed = data[lb_rank + (rand() % (ub_rank - lb_rank))];
   }
   // Bcast selected
   // MPI_Bcast(&proposed, 1, MPI_INT, worker_select, MPI_COMM_WORLD);
