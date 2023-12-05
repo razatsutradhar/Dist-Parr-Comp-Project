@@ -2,6 +2,7 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 // recieve ranges and create a list
 // while true
@@ -20,11 +21,12 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
       world_rank; // size is number of processes, rank is rank of each process
   MPI_Comm_size(MPI_COMM_WORLD, &world_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-  srand(12);
+  srand(time(0));
 
   int *all_min;      // gathers of all mins and maxes, dynamic array
   int *all_max;      // gathers of all mins and maxes, dynamic array
   int *all_lt_count; // gathers of less than counts, dynamic array
+  int *all_gt_count;
 
   FILE *data_file;
   char *full_path;
@@ -34,7 +36,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
   // possible is the number of possible workers fit the criteria
   // worker_select broadcasts the selected worker
 
-  int hi, low, lb_rank, ub_rank, proposed = 0, proposed_rank;
+  int hi, low, lb_rank, ub_rank, proposed = 0, all_lt, all_gt;
   // step is the step size for the binary search
   // lb_rank is the rank of the lower bound
   // ub_rank is the rank of the upper bound
@@ -65,6 +67,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
     all_min = calloc(world_size, sizeof(int));
     all_max = calloc(world_size, sizeof(int));
     all_lt_count = calloc(world_size, sizeof(int));
+    all_gt_count = calloc(world_size, sizeof(int));
   }
   // gather all min and max
   MPI_Gather(&this_min, 1, MPI_INT, all_min, 1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -149,29 +152,54 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
     hi = this_count - 1;
     low = 0;
     while (hi >= low) {
-      proposed_rank = low + (hi - low) / 2;
-      printf("rank low: %d mid: %d high: %d\n", low, proposed_rank, hi);
-      if (data[proposed_rank] == proposed) {
+      all_lt = low + (hi - low) / 2;
+      printf("rank low: %d mid: %d high: %d\n", low, all_lt, hi);
+      if (data[all_lt] == proposed && data[all_lt - 1] != proposed) {
         break;
-      } else if (data[proposed_rank] < proposed) {
-        low = proposed_rank + 1;
+      } else if (data[all_lt] < proposed) {
+        low = all_lt + 1;
       } else {
-        hi = proposed_rank - 1;
+        hi = all_lt - 1;
       }
     }
-    printf("pid: %d proposed_rank: %d", world_rank, proposed_rank);
-    MPI_Gather(&proposed_rank, 1, MPI_INT, all_lt_count, 1, MPI_INT, 0,
+
+    hi = this_count - 1;
+    low = 0;
+    while (hi >= low) {
+      all_gt = low + (hi - low) / 2;
+      printf("rank low: %d mid: %d high: %d\n", low, all_gt, hi);
+      if (data[all_gt] == proposed && data[all_gt + 1] != proposed) {
+        break;
+      } else if (data[all_gt] <= proposed) {
+        low = all_gt + 1;
+      } else {
+        hi = all_gt - 1;
+      }
+    }
+
+    printf("pid: %d proposed_rank: %d", world_rank, all_lt);
+    MPI_Gather(&all_lt, 1, MPI_INT, all_lt_count, 1, MPI_INT, 0,
+               MPI_COMM_WORLD);
+    MPI_Gather(&all_gt, 1, MPI_INT, all_gt_count, 1, MPI_INT, 0,
                MPI_COMM_WORLD);
 
     if (world_rank == 0) {
-      proposed_rank = 0;
+      all_lt = 0;
       for (i = 0; i < world_size; i++) {
         printf("lt at %d is %d\n", i, all_lt_count[i]);
-        proposed_rank += all_lt_count[i];
+        all_lt += all_lt_count[i];
       }
-      if (proposed_rank == rank) {
+      all_gt = 0;
+      for (i = 0; i < world_size; i++) {
+        printf("gt at %d is %d\n", i, all_gt_count[i]);
+        all_gt += all_gt_count[i];
+      }
+
+      printf("%d %d %d", all_lt, rank, all_gt);
+      if (all_lt < rank && all_gt > rank) {
         cont = 0;
-      } else if (proposed_rank > rank) {
+        printf("anser is %d\n", proposed);
+      } else if (all_lt > rank) {
         ub = proposed;
       } else {
         lb = proposed;
