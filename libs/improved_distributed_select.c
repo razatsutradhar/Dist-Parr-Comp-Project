@@ -13,21 +13,22 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
   MPI_Init(argc, argv);
   int i; // loop itterator
 
-  int this_min, this_max, this_count; //min max of every local device
-  int *data; // local data
+  int this_min, this_max, this_count; // min max of every local device
+  int *data;                          // local data
 
-  int world_size, world_rank; // size is number of processes, rank is rank of each process
+  int world_size,
+      world_rank; // size is number of processes, rank is rank of each process
   MPI_Comm_size(MPI_COMM_WORLD, &world_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
-  int *all_min; // gathers of all mins and maxes, dynamic array
-  int *all_max; // gathers of all mins and maxes, dynamic array
+  int *all_min;      // gathers of all mins and maxes, dynamic array
+  int *all_max;      // gathers of all mins and maxes, dynamic array
   int *all_lt_count; // gathers of less than counts, dynamic array
 
   FILE *data_file;
   char *full_path;
 
-  int ub = INT_MAX, lb = 0, possible, worker_select; 
+  int ub = INT_MAX, lb = 0, possible, worker_select;
   // ub and lb are the upper and lower bounds of the range
   // possible is the number of possible workers fit the criteria
   // worker_select broadcasts the selected worker
@@ -45,7 +46,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
   data = calloc(this_count, sizeof(int));
   printf("pid: %d length: %d\n\r", world_rank, this_count);
   for (i = 0; i < this_count; i++) {
-    fscanf(data_file, "%d", &this_count);
+    fscanf(data_file, "%d", &data[i]);
   }
   fclose(data_file);
 
