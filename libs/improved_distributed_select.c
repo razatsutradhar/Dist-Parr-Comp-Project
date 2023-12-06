@@ -14,12 +14,13 @@
 int improved_distributed_select(char *data_path, int rank, int *argc,
                                 char ***argv) {
   setbuf(stdout, NULL);
-  MPI_Init(argc, argv);
+  //MPI_Init(argc, argv);
   int i, cont = 1; // loop itterator
-
+  int k = 0;
+  int l=1;
   int this_min, this_max, this_count; // min max of every local device
   int *data;                          // local data
-
+  float error = 0;                      // error of guess
   int world_size,
       world_rank; // size is number of processes, rank is rank of each process
   MPI_Comm_size(MPI_COMM_WORLD, &world_size);
@@ -45,18 +46,26 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
   // ub_rank is the rank of the upper bound
   // proposed is the proposed rank
 
-  asprintf(&full_path, "%s/%d.txt", data_path, world_rank);
+  //asprintf(&full_path, "%s/%d.txt", data_path, world_rank);
+  full_path = malloc(sizeof(char) * 100);
+  sprintf(full_path, "%s/%d.txt", data_path, world_rank);
   data_file = fopen(full_path, "r");
   free(full_path);
-  fscanf(data_file, "%d\n", &this_count);
-  data = calloc(this_count, sizeof(int));
-#ifdef DEBUG
-  printf("pid: %d length: %d\n\r", world_rank, this_count);
-#endif
-  for (i = 0; i < this_count; i++) {
-    fscanf(data_file, "%d", &data[i]);
+  // get count of lines
+  data = calloc(200, sizeof(int));
+  this_count = 0;
+  while (fscanf(data_file, "%d", &data[this_count]) != EOF) {
+    this_count++;
   }
+
+  // allocate data
+  // reset file
+  rewind(data_file);
+  // read data and store in data
+
+
   fclose(data_file);
+  // print data
 
   this_min = data[0];
   this_max = data[0];
@@ -77,7 +86,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
   // gather all min and max
   MPI_Gather(&this_min, 1, MPI_INT, all_min, 1, MPI_INT, 0, MPI_COMM_WORLD);
   MPI_Gather(&this_max, 1, MPI_INT, all_max, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
+  MPI_Barrier(MPI_COMM_WORLD);
 #ifdef DEBUG
   // print all min and max
   for (i = 0; i < world_size; i++) {
@@ -86,10 +95,12 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
     }
   }
 #endif
-  while (cont) {
-
+  while (cont>0) {
+    
+    //printf("loop %d\n", k++);
     // select a random possible worker based on ub and lb criteria
     if (world_rank == 0) {
+      k++;
 #ifdef DEBUG
       printf("\nub: %d lb: %d\n", ub, lb);
 #endif
@@ -98,6 +109,11 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
       for (i = 0; i < world_size; i++) {
         if (all_min[i] < ub && all_max[i] > lb)
           possible++;
+      }
+      //printf("possible: %d\n", possible);
+      if (possible == 0) {
+        cont = 0;
+        break;
       }
       i = rand() % possible;
       worker_select = 0;
@@ -121,7 +137,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
     // Bcast lb and ub so every process knows the range
     MPI_Bcast(&lb, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&ub, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
+    MPI_Barrier(MPI_COMM_WORLD);
     // only worker select proposes the possible median
     if (world_rank == worker_select) {
 
@@ -159,57 +175,103 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
         }
       }
       // get random number in the range
-      proposed = data[lb_rank + (rand() % (ub_rank - lb_rank))];
+      //printf("lb_rank: %d ub_rank: %d\n", lb_rank, ub_rank);
+      if (lb_rank == ub_rank) {
+        proposed = data[lb_rank];
+      } else {
+        //proposed = data[lb_rank + (rand() % (ub_rank - lb_rank))];
+        //proposed = data[(int)(lb_rank + ub_rank)/2];
+        if(error<0){
+          proposed = data[(int)((lb_rank + ub_rank)/2 - rand() % (int)((ub_rank - lb_rank)/4))];
+        }else{
+          proposed = data[(int)((lb_rank + ub_rank)/2 + rand() % (int)((ub_rank - lb_rank)/4))];
+        }
+      }
+      // printf("proposed: %d\n", proposed);
 #ifdef DEBUG
       printf("proposed: %d\n", proposed);
 #endif
     }
     // Bcast selected
     MPI_Bcast(&proposed, 1, MPI_INT, worker_select, MPI_COMM_WORLD);
-
+    MPI_Barrier(MPI_COMM_WORLD);
     hi = this_count - 1;
     low = 0;
+
+    //printf("min: %d max: %d\n", this_min, this_max);
+    if (proposed < this_min) {
+      all_lt = 0;
+      all_gt = this_count;
+      //printf("proposed: %d this_min: %d\n", proposed, this_min);
+    } else if (proposed > this_max) {
+      all_gt = 0;
+      all_lt = this_count;
+      //printf("proposed: %d this_max: %d\n", proposed, this_max);
+    }else{
+      // find index of proposed or closest to proposed in data
+
     while (hi >= low) {
       all_lt = low + (hi - low) / 2;
+  
 #ifdef BS_DEBUG
       printf("rank low: %d mid: %d high: %d\n", low, all_lt, hi);
 #endif
-      if (data[all_lt] == proposed && data[all_lt - 1] != proposed) {
+      //printf("index: %d all_lt: %d proposed: %d all_lt-1: %d\n",all_lt, data[all_lt], proposed, data[all_lt-1]);
+      if (data[all_lt] == proposed) {
+        while (data[all_lt] == proposed) {
+          all_lt--;
+        }
         break;
+      } 
+      if (data[all_lt] >= proposed && data[all_lt - 1] <= proposed) {
+        hi = low-1;
       } else if (data[all_lt] < proposed) {
         low = all_lt + 1;
-      } else {
+      } else if (data[all_lt] > proposed){
         hi = all_lt - 1;
       }
+      all_gt = this_count - all_lt;
     }
-
+    }
+  
     hi = this_count - 1;
     low = 0;
     while (hi >= low) {
       all_gt = low + (hi - low) / 2;
-#ifdef BS_DEBUG
-      printf("rank low: %d mid: %d high: %d\n", low, all_gt, hi);
-#endif
-      if (data[all_gt] == proposed && data[all_gt + 1] != proposed) {
+      
+      if(data[all_gt] == proposed){
+        while (data[all_gt] == proposed) {
+          all_gt++;
+        }
         break;
-      } else if (data[all_gt] <= proposed) {
+      }
+
+      if (data[all_gt] >= proposed && data[all_gt - 1] <= proposed) {
+        break;
+      } else if (data[all_gt] < proposed) {
         low = all_gt + 1;
-      } else {
+      } else if (data[all_gt] > proposed){
         hi = all_gt - 1;
       }
     }
+    all_gt = this_count - all_gt;
+  
+    
 
+    //printf("all_lt: %d all_gt: %d\n", all_lt, all_gt);
     MPI_Gather(&all_lt, 1, MPI_INT, all_lt_count, 1, MPI_INT, 0,
                MPI_COMM_WORLD);
     MPI_Gather(&all_gt, 1, MPI_INT, all_gt_count, 1, MPI_INT, 0,
                MPI_COMM_WORLD);
-
+    // wait for all processes to finish gathering
+    MPI_Barrier(MPI_COMM_WORLD);
     if (world_rank == 0) {
       all_lt = 0;
       for (i = 0; i < world_size; i++) {
 #ifdef DEBUG
         printf("lt at %d is %d\n", i, all_lt_count[i]);
 #endif
+        //printf("lt at %d is %d\n", i, all_lt_count[i]);
         all_lt += all_lt_count[i];
       }
       all_gt = 0;
@@ -222,18 +284,20 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
 #ifdef DEBUG
       printf("%d %d %d\n", all_lt, rank, all_gt);
 #endif
-      if (all_lt < rank && all_gt > rank) {
+      //printf("all_lt: %d all_gt: %d\n", all_lt, all_gt);
+      if (all_lt-rank<2 && all_lt-rank>-2) {
         cont = 0;
-#ifdef DEBUG
-        printf("anser is %d\n", proposed);
-#endif
-      } else if (all_lt > rank) {
+        //printf("loop %d\n", k);
+      }else if (all_lt > rank) {
         ub = proposed;
       } else {
         lb = proposed;
       }
     }
+    error = (rank-all_lt);
     MPI_Bcast(&cont, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
+    // printf("\n");
   }
 
   free(data);
@@ -243,8 +307,15 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
     free(all_max);
     free(all_lt_count);
     free(all_gt_count);
+
   }
 
-  MPI_Finalize();
-  return proposed;
+  //MPI_Finalize();
+
+  if (world_rank == 0) {
+    return k;
+  }else{
+    return -1;
+  }
+  
 }

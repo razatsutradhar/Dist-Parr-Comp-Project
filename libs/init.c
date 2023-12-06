@@ -32,7 +32,7 @@ void getValuesFromLine(const char *file_path, int line_number, int *values) {
 }
 
 int main() {
-    const char *file_path = "../data/data.txt"; // Replace "your_file.txt" with your file name
+    const char *file_path = "./data/data.txt"; // Replace "your_file.txt" with your file name
     int line_number = 5; // Replace with the line number you want to extract
     int extracted_values[VALUES_PER_LINE];
 
