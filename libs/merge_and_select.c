@@ -4,7 +4,7 @@
 #include <stdlib.h>
 int merge_and_select(char *data_path, int rank, int *argc, char ***argv) {
   setbuf(stdout, NULL);
-  MPI_Init(argc, argv);
+  // MPI_Init(argc, argv);
   int i, j;
   int world_size,
       world_rank; // size is number of processes, rank is rank of each process
@@ -100,6 +100,6 @@ int merge_and_select(char *data_path, int rank, int *argc, char ***argv) {
     free(merged_data);
   }
 
-  MPI_Finalize();
+  // MPI_Finalize();
   return answer;
 }
