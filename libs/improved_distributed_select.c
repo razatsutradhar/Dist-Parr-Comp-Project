@@ -59,13 +59,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
   fclose(data_file);
 
   this_min = data[0];
-  this_max = data[0];
-  for (i = 1; i < this_count; i++) {
-    if (data[i] < this_min)
-      this_min = data[i];
-    if (data[i] > this_max)
-      this_max = data[i];
-  }
+  this_max = data[this_count - 1];
 
   // request all min and max
   if (world_rank == 0) {
@@ -111,7 +105,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
 #endif
       for (i = 0; i < world_size; i++) {
         if (all_min[i] < ub && all_max[i] > lb) {
-          if (possible) {
+          if (possible == 0) {
             worker_select = i;
             break;
           }
@@ -196,7 +190,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
     while (hi >= low) {
       all_gt = low + (hi - low) / 2;
 #ifdef BS_DEBUG
-      printf("rank low: %d mid: %d high: %d\n", low, all_gt, hi);
+      printf("rank %d low: %d mid: %d high: %d\n", world_rank, low, all_gt, hi);
 #endif
       if (data[all_gt] == proposed && data[all_gt + 1] != proposed) {
         break;
@@ -206,9 +200,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
         hi = all_gt - 1;
       }
     }
-    if (data[all_gt] != proposed) {
-      all_gt++;
-      all_lt++;
+    if (data[all_lt] != proposed) {
     } else {
       all_gt++;
     }
@@ -249,6 +241,9 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
         ub = proposed;
       } else {
         lb = proposed;
+      }
+      if (ub == lb) {
+        break;
       }
     }
     MPI_Bcast(&cont, 1, MPI_INT, 0, MPI_COMM_WORLD);
