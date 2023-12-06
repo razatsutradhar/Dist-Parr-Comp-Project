@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <time.h>
 
-// #define DEBUG
-// #define BS_DEBUG
+#define DEBUG
+#define BS_DEBUG
 
 // recieve ranges and create a list
 // while true
@@ -16,6 +16,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
   setbuf(stdout, NULL);
   MPI_Init(argc, argv);
   int i, cont = 1; // loop itterator
+  int iterations = 0;
 
   int this_min, this_max, this_count; // min max of every local device
   int *data;                          // local data
@@ -87,7 +88,7 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
   }
 #endif
   while (cont) {
-
+    iterations++;
     // select a random possible worker based on ub and lb criteria
     if (world_rank == 0) {
 #ifdef DEBUG
@@ -99,15 +100,18 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
         if (all_min[i] < ub && all_max[i] > lb)
           possible++;
       }
-      i = rand() % possible;
-      worker_select = 0;
+      possible = rand() % possible;
 #ifdef DEBUG
       printf("chose %d out of %d possible\n", i, possible);
 #endif
-      while (i) {
-        worker_select++;
+      for (i = 0; i < world_size; i++) {
+        printf("%d %d", i, possible);
         if (all_min[i] < ub && all_max[i] > lb) {
-          i--;
+          if (possible) {
+            worker_select = i;
+            break;
+          }
+          possible--;
         }
       }
 #ifdef DEBUG
@@ -159,6 +163,9 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
         }
       }
       // get random number in the range
+      if (lb_rank == ub_rank) {
+        proposed = data[lb_rank];
+      }
       proposed = data[lb_rank + (rand() % (ub_rank - lb_rank))];
 #ifdef DEBUG
       printf("proposed: %d\n", proposed);
@@ -222,10 +229,10 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
 #ifdef DEBUG
       printf("%d %d %d\n", all_lt, rank, all_gt);
 #endif
-      if (all_lt < rank && all_gt > rank) {
+      if (all_lt <= rank && all_gt >= rank) {
         cont = 0;
 #ifdef DEBUG
-        printf("anser is %d\n", proposed);
+        printf("anser is %d took %d\n", proposed, iterations);
 #endif
       } else if (all_lt > rank) {
         ub = proposed;
