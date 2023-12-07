@@ -242,10 +242,12 @@ int improved_distributed_select(char *data_path, int rank, int *argc,
       } else {
         lb = proposed;
       }
-      if (ub == lb) {
-        break;
-      }
     }
+
+    if (ub - lb < 2) {
+      cont = 0;
+    }
+
     MPI_Bcast(&cont, 1, MPI_INT, 0, MPI_COMM_WORLD);
   }
 

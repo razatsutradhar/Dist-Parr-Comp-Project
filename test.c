@@ -14,12 +14,12 @@ int main(int argc, char *argv[]) {
   asprintf(&types[0], "0_offset_100_std");
   asprintf(&types[1], "200_offset_100_std");
 
-  int sizes[5] = {100, 200, 500, 1000, 2000};
+  int sizes[8] = {100, 200, 500, 1000, 2000, 10000, 50000, 100000};
   int ranks[3] = {100, 4, 2};
 
   int rounds = 100;
   int num_types = 2;
-  int num_sizes = 5;
+  int num_sizes = 8;
   int num_ranks = 3;
 
   FILE *dest_file;
@@ -30,7 +30,8 @@ int main(int argc, char *argv[]) {
   for (i = 0; i < num_types; i++) {
     for (j = 0; j < num_sizes; j++) {
 
-      asprintf(&data_path, "./data/%s/test_%d_points", types[i], sizes[j]);
+      asprintf(&data_path, "./bigger data set/%s/test_%d_points", types[i],
+               sizes[j]);
 
       for (k = 0; k < num_ranks; k++) {
 
